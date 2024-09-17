@@ -16,7 +16,12 @@ DPIS = [72, 300, 600, 1200]
 MAX_TOTAL_BYTES = 10485760  # 10MB
 SOURCE_DIR = "./tmp/source"
 RESAMPLING_FILTER = Image.LANCZOS
-JPEG_QUALITY = 95
+JPEG_QUALITY = 15
+
+# Feature Flags
+ENABLE_CHECK_MAX_BYTES = True
+ENABLE_CHECK_MIN_MAX_LENGTH = True
+ENABLE_JPEG_QUALITY = True
 
 # Supported image formats based on MIME types
 SUPPORTED_FORMATS = ['image/jpeg', 'image/png', 'image/tiff', 'image/bmp']
@@ -36,32 +41,27 @@ def delete_file_if_exists(file_path):
     except OSError as e:
         logging.warning(f"Error deleting file {file_path}: {e}")
 
+# Helper function to split file name and extension
+def split_file_name(file_path):
+    return os.path.splitext(os.path.basename(file_path))
 
 def resize_image(image_path, dpi):
     try:
-        # Open the image file
         with Image.open(image_path) as img:
             original_width, original_height = img.size
-            
             # Assume the highest DPI as the base for scaling
-            # TODO - read DPI from source image
             original_dpi = max(DPIS)
 
-            # Calculate scale factor based on DPI
             dpi_scale_factor = dpi / original_dpi
 
-            # Apply both DPI and pixel length scaling
             new_width = int(original_width * dpi_scale_factor)
             new_height = int(original_height * dpi_scale_factor)
 
-            # Determine the scale factor based on the longest edge
-            scale_factor = min(MAX_PIXEL_LENGTH / max(new_width, new_height), 1)
-            
-            # Ensure the longest edge is between MAX_PIXEL_LENGTH and MIN_PIXEL_LENGTH, inclusive
-            # new_width = max(int(new_width * scale_factor), MIN_PIXEL_LENGTH)
-            # new_height = max(int(new_height * scale_factor), MIN_PIXEL_LENGTH)
+            if ENABLE_CHECK_MIN_MAX_LENGTH:
+                scale_factor = min(MAX_PIXEL_LENGTH / max(new_width, new_height), 1)
+                new_width = max(int(new_width * scale_factor), MIN_PIXEL_LENGTH)
+                new_height = max(int(new_height * scale_factor), MIN_PIXEL_LENGTH)
 
-            # Resize image using the resampling filter
             resized_img = img.resize((new_width, new_height), RESAMPLING_FILTER)
             return resized_img
 
@@ -72,10 +72,10 @@ def resize_image(image_path, dpi):
         logging.error(f"Unexpected error resizing image {image_path}: {str(e)}")
         return None
 
-
 def save_resized_image(resized_img, original_file_path, dpi):
     try:
-        file_name, file_ext = os.path.splitext(os.path.basename(original_file_path))
+        # Split file name and extension using the helper function
+        file_name, file_ext = split_file_name(original_file_path)
         target_dir = f"{SOURCE_DIR}_images_{dpi}dpi"
         if not os.path.exists(target_dir):
             os.makedirs(target_dir)
@@ -83,9 +83,8 @@ def save_resized_image(resized_img, original_file_path, dpi):
         new_file_name = f"{file_name}_{dpi}dpi{file_ext}"
         new_file_path = os.path.join(target_dir, new_file_name)
 
-        # Save the resized image with quality settings for JPEG
         save_params = {'dpi': (dpi, dpi)}
-        if file_ext.lower() in ['.jpg', '.jpeg']:
+        if ENABLE_JPEG_QUALITY and file_ext.lower() in ['.jpg', '.jpeg']:
             save_params['quality'] = JPEG_QUALITY
         
         resized_img.save(new_file_path, **save_params)
@@ -96,27 +95,35 @@ def save_resized_image(resized_img, original_file_path, dpi):
     except Exception as e:
         logging.error(f"Unexpected error saving image {original_file_path} at {dpi}dpi: {str(e)}")
 
-
-def check_image_size_in_memory(resized_img, dpi):
+# Updated check_image_size_in_memory function without file_name parameter
+def check_image_size_in_memory(resized_img, original_file_path, dpi):
     try:
-        # Use BytesIO to avoid writing to disk and check size in memory
+        # Split file name and extension using the helper function
+        _, file_ext = split_file_name(original_file_path)
+
+        # Determine the correct image format for saving in memory
         img_io = io.BytesIO()
-        save_params = {'dpi': (dpi, dpi), 'quality': JPEG_QUALITY}
-        # if resized_img.format.lower() in ['jpeg', 'jpg']:
-            # save_params['quality'] = JPEG_QUALITY
-        resized_img.save(img_io, format=resized_img.format, **save_params)
+        save_params = {'dpi': (dpi, dpi)}
+        if ENABLE_JPEG_QUALITY and file_ext.lower() in ['.jpg', '.jpeg']:
+            save_params['quality'] = JPEG_QUALITY
+
+        # Ensure the correct image format is passed when saving
+        image_format = file_ext.lstrip('.').upper()  # Convert extension to format
+
+        if image_format == 'JPG':
+            image_format = 'JPEG'
+
+        resized_img.save(img_io, format=image_format, **save_params)
         img_size = img_io.tell()
         return img_size
     except Exception as e:
-        logging.error(f"Error checking image size in memory for {dpi}dpi: {str(e)}")
+        logging.error(f"Error checking image size in memory for {original_file_path} at {dpi}dpi: {str(e)}")
         return None
 
-
-def process_images():    
+def process_images():
     for file_name in os.listdir(SOURCE_DIR):
         file_path = os.path.join(SOURCE_DIR, file_name)
 
-        # Verify that it's an image file using MIME types
         mime_type, _ = mimetypes.guess_type(file_path)
         if mime_type not in SUPPORTED_FORMATS:
             logging.info(f"Skipped non-image file: {file_path}")
@@ -126,17 +133,15 @@ def process_images():
 
         for dpi in DPIS:
             resized_img = resize_image(file_path, dpi)
-            # if resized_img is None:
-            #     continue  # Skip if resizing failed
+            if resized_img is None:
+                continue
 
-            # Check if the resized image size in memory is above the max byte limit
-            # img_size = check_image_size_in_memory(resized_img, dpi)
-            # if img_size is not None and img_size > MAX_TOTAL_BYTES:
-            #     logging.warning(f"Image {file_name} at {dpi}dpi exceeds max size: {img_size} bytes (max {MAX_TOTAL_BYTES} bytes).")
+            if ENABLE_CHECK_MAX_BYTES:
+                img_size = check_image_size_in_memory(resized_img, file_path, dpi)
+                if img_size is not None and img_size > MAX_TOTAL_BYTES:
+                    logging.warning(f"Image {file_name} at {dpi}dpi exceeds max size: {img_size} bytes (max {MAX_TOTAL_BYTES} bytes).")
             
-            # Save the resized image regardless of size
             save_resized_image(resized_img, file_path, dpi)
-
 
 if __name__ == "__main__":
     init_logger()
