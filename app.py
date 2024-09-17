@@ -11,20 +11,30 @@ Image.MAX_IMAGE_PIXELS = 209715200  # 200MB
 
 # Constants
 MAX_PIXEL_LENGTH = 10000
-MIN_PIXEL_LENGTH = 600  # Minimum width/height for downscaled images
+MIN_PIXEL_LENGTH = 600
 DPIS = [72, 300, 600, 1200]
 MAX_TOTAL_BYTES = 10485760  # 10MB
 SOURCE_DIR = "./tmp/source"
-RESAMPLING_FILTER = Image.LANCZOS  # High-quality downscaling filter
-JPEG_QUALITY = 95  # Quality setting for JPEG export
+RESAMPLING_FILTER = Image.LANCZOS
+JPEG_QUALITY = 95
 
 # Supported image formats based on MIME types
 SUPPORTED_FORMATS = ['image/jpeg', 'image/png', 'image/tiff', 'image/bmp']
 
 # Set up logging
 LOG_FILE = "image_resize.log"
-logging.basicConfig(filename=LOG_FILE, level=logging.INFO,
-                    format='%(asctime)s - %(levelname)s - %(message)s')
+
+def init_logger():
+    delete_file_if_exists(LOG_FILE)
+    logging.basicConfig(filename=LOG_FILE, level=logging.INFO,
+                        format='%(asctime)s - %(levelname)s - %(message)s')
+
+def delete_file_if_exists(file_path):
+    try:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+    except OSError as e:
+        logging.warning(f"Error deleting file {file_path}: {e}")
 
 
 def resize_image(image_path, dpi):
@@ -32,7 +42,10 @@ def resize_image(image_path, dpi):
         # Open the image file
         with Image.open(image_path) as img:
             original_width, original_height = img.size
-            original_dpi = max(DPIS)  # Assume the highest DPI as the base for scaling
+            
+            # Assume the highest DPI as the base for scaling
+            # TODO - read DPI from source image
+            original_dpi = max(DPIS)
 
             # Calculate scale factor based on DPI
             dpi_scale_factor = dpi / original_dpi
@@ -41,10 +54,12 @@ def resize_image(image_path, dpi):
             new_width = int(original_width * dpi_scale_factor)
             new_height = int(original_height * dpi_scale_factor)
 
-            # Ensure the resized dimensions are within MAX_PIXEL_LENGTH and not smaller than MIN_PIXEL_LENGTH
+            # Determine the scale factor based on the longest edge
             scale_factor = min(MAX_PIXEL_LENGTH / max(new_width, new_height), 1)
-            new_width = max(int(new_width * scale_factor), MIN_PIXEL_LENGTH)
-            new_height = max(int(new_height * scale_factor), MIN_PIXEL_LENGTH)
+            
+            # Ensure the longest edge is between MAX_PIXEL_LENGTH and MIN_PIXEL_LENGTH, inclusive
+            # new_width = max(int(new_width * scale_factor), MIN_PIXEL_LENGTH)
+            # new_height = max(int(new_height * scale_factor), MIN_PIXEL_LENGTH)
 
             # Resize image using the resampling filter
             resized_img = img.resize((new_width, new_height), RESAMPLING_FILTER)
@@ -86,9 +101,9 @@ def check_image_size_in_memory(resized_img, dpi):
     try:
         # Use BytesIO to avoid writing to disk and check size in memory
         img_io = io.BytesIO()
-        save_params = {'dpi': (dpi, dpi)}
-        if resized_img.format.lower() in ['jpeg', 'jpg']:
-            save_params['quality'] = JPEG_QUALITY
+        save_params = {'dpi': (dpi, dpi), 'quality': JPEG_QUALITY}
+        # if resized_img.format.lower() in ['jpeg', 'jpg']:
+            # save_params['quality'] = JPEG_QUALITY
         resized_img.save(img_io, format=resized_img.format, **save_params)
         img_size = img_io.tell()
         return img_size
@@ -97,7 +112,7 @@ def check_image_size_in_memory(resized_img, dpi):
         return None
 
 
-def process_images():
+def process_images():    
     for file_name in os.listdir(SOURCE_DIR):
         file_path = os.path.join(SOURCE_DIR, file_name)
 
@@ -111,17 +126,18 @@ def process_images():
 
         for dpi in DPIS:
             resized_img = resize_image(file_path, dpi)
-            if resized_img is None:
-                continue  # Skip if resizing failed
+            # if resized_img is None:
+            #     continue  # Skip if resizing failed
 
             # Check if the resized image size in memory is above the max byte limit
-            img_size = check_image_size_in_memory(resized_img, dpi)
-            if img_size is not None and img_size > MAX_TOTAL_BYTES:
-                logging.warning(f"Image {file_name} at {dpi}dpi exceeds max size: {img_size} bytes (max {MAX_TOTAL_BYTES} bytes).")
+            # img_size = check_image_size_in_memory(resized_img, dpi)
+            # if img_size is not None and img_size > MAX_TOTAL_BYTES:
+            #     logging.warning(f"Image {file_name} at {dpi}dpi exceeds max size: {img_size} bytes (max {MAX_TOTAL_BYTES} bytes).")
             
             # Save the resized image regardless of size
             save_resized_image(resized_img, file_path, dpi)
 
 
 if __name__ == "__main__":
+    init_logger()
     process_images()
