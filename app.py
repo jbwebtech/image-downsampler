@@ -59,8 +59,11 @@ def resize_image(image_path, dpi):
     try:
         with Image.open(image_path) as img:
             original_width, original_height = img.size
-            # Assume the highest DPI as the base for scaling
-            original_dpi = max(DPIS)
+            original_dpi = get_original_dpi(img)
+            
+            if dpi > original_dpi:
+                logging.info(f"Skipping image {image_path} at {dpi}dpi (original DPI: {original_dpi})")
+                return None
 
             dpi_scale_factor = dpi / original_dpi
 
