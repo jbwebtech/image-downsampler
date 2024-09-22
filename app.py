@@ -16,7 +16,8 @@ DPIS = [72, 300, 600, 1200]
 MAX_TOTAL_BYTES = 10485760  # 10MB
 SOURCE_DIR = "./tmp/source"
 RESAMPLING_FILTER = Image.LANCZOS
-JPEG_QUALITY = 15
+JPEG_QUALITY = 98
+DEFAULT_DPI = 300
 
 # Feature Flags
 ENABLE_CHECK_MAX_BYTES = True
@@ -44,6 +45,15 @@ def delete_file_if_exists(file_path):
 # Helper function to split file name and extension
 def split_file_name(file_path):
     return os.path.splitext(os.path.basename(file_path))
+
+def get_original_dpi(image):
+    """Extract the original DPI from the image metadata. Default to DEFAULT_DPI if not found."""
+    dpi = (DEFAULT_DPI, DEFAULT_DPI)
+    try:
+        dpi = image.info.get('dpi')  # Default to 72 DPI if not found
+    except Exception as e:
+        logging.warning(f"Failed to read DPI from source image metadata: {e}")    
+    return max(dpi)  # Return the higher value for scaling
 
 def resize_image(image_path, dpi):
     try:
