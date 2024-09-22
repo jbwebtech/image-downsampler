@@ -67,10 +67,15 @@ def resize_image(image_path, dpi):
 
             dpi_scale_factor = dpi / original_dpi
 
-            new_width = int(original_width * dpi_scale_factor)
-            new_height = int(original_height * dpi_scale_factor)
+            if original_width > original_height:  #  Landscape
+                new_width = int(original_width * dpi_scale_factor)
+                new_height = int(new_width * (original_height / original_width))
+            else:  #  Portrait or square
+                new_height = int(original_height * dpi_scale_factor)
+                new_width = int(new_height * (original_width / original_height))
 
             if ENABLE_CHECK_MIN_MAX_LENGTH:
+                # Resize the image if its longest side is longer than MAX_PIXEL_LENGTH or shorter than MIN_PIXEL_LENGTH
                 scale_factor = min(MAX_PIXEL_LENGTH / max(new_width, new_height), 1)
                 new_width = max(int(new_width * scale_factor), MIN_PIXEL_LENGTH)
                 new_height = max(int(new_height * scale_factor), MIN_PIXEL_LENGTH)
